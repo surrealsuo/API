@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>聊天机器人</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: #f4f4f4;
+        }
+        .chat-container {
+            width: 80%;
+            max-width: 600px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .chat-box {
+            height: 300px;
+            overflow-y: scroll;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
+        }
+        .chat-box div {
+            margin-bottom: 10px;
+        }
+        .input-container {
+            display: flex;
+        }
+        .input-container input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .input-container button {
+            padding: 10px 20px;
+            border: none;
+            background-color: #28a745;
+            color: white;
+            border-radius: 4px;
+            margin-left: 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div id="chat-box" class="chat-box"></div>
+        <div class="input-container">
+            <input type="text" id="user-input" placeholder="请输入你的消息">
+            <button onclick="sendMessage()">发送</button>
+        </div>
+    </div>
+
+    <script>
+        const url = 'https://open.hunyuan.tencent.com/openapi/v1/agent/chat/completions';
+        const headers = {
+            'X-Source': 'openapi',
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer OYnBzo0hshDdDOOomAdQw71ABNcVjs9p'
+        };
+        let conversation = [];
+
+        async function sendRequestStream(conversation) {
+            const data = {
+                "assistant_id": "eZcumGU8lJD8",
+                "user_id": "ruixing",
+                "stream": true,
+                "messages": conversation
+            };
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(data)
+            });
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let fullReply = "";
+            let tempReply = "";
+            const chatBox = document.getElementById('chat-box');
+
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+
+                const decodedValue = decoder.decode(value);
+                const lines = decodedValue.split('\n').filter(Boolean);
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const dataContent = line.substring(6);
+                        if (dataContent === '[DONE]') return fullReply;
+
+                        try {
+                            const jsonData = JSON.parse(dataContent);
+                            if (jsonData.choices && jsonData.choices.length > 0) {
+                                const delta = jsonData.choices[0].delta;
+                                if (delta.content) {
+                                    tempReply += delta.content;
+                                    chatBox.innerHTML = chatBox.innerHTML.replace(/<div>机器人: .*<\/div>/, '');
+                                    chatBox.innerHTML += `<div>机器人: ${tempReply}</div>`;
+                                    chatBox.scrollTop = chatBox.scrollHeight;
+                                    fullReply += delta.content;
+                                }
+                            }
+                        } catch (error) {
+                            console.error("JSON解析错误:", error);
+                        }
+                    }
+                }
+            }
+
+            return fullReply;
+        }
+
+        async function continueConversation(userInput) {
+            const newMessage = {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": userInput
+                    }
+                ]
+            };
+            conversation.push(newMessage);
+            const reply = await sendRequestStream(conversation);
+
+            if (reply) {
+                const newAssistantMessage = {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": reply
+                        }
+                    ]
+                };
+                conversation.push(newAssistantMessage);
+            } else {
+                const chatBox = document.getElementById('chat-box');
+                chatBox.innerHTML += `<div>请求失败，请检查API设置。</div>`;
+            }
+        }
+
+        function sendMessage() {
+            const userInput = document.getElementById('user-input').value;
+            if (userInput.trim()) {
+                const chatBox = document.getElementById('chat-box');
+                chatBox.innerHTML += `<div>你: ${userInput}</div>`;
+                document.getElementById('user-input').value = '';
+                continueConversation(userInput);
+            }
+        }
+    </script>
+</body>
+</html>
